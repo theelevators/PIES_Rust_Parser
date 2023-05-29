@@ -124,12 +124,12 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
             match self.parser.next() {
                 Ok(XmlEvent::StartElement { name, attributes, .. }) => {
                     self.depth += 1;
-                    self.parent = Some(name.local_name.clone());
 
                     match self.p_state {
                         Segment::Off => {
                             if name.local_name.as_str() == "Header" {
                                 self.p_state = Segment::Header;
+                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                         }
@@ -137,6 +137,7 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                             let segment = "Header";
                             if name.local_name.as_str() == "PriceSheets" {
                                 self.p_state = Segment::Price;
+                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                             self.tag = Some(name.local_name);
@@ -146,6 +147,7 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                             let segment = "Price";
                             if name.local_name.as_str() == "MarketingCopy" {
                                 self.p_state = Segment::Mkt;
+                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                             self.tag = Some(name.local_name);
@@ -156,6 +158,7 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                             let segment = "MarketingCopy";
                             if name.local_name.as_str() == "Items" {
                                 self.p_state = Segment::Item;
+                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                             self.tag = Some(name.local_name);
@@ -170,6 +173,7 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                             if name.local_name.as_str() == "Trailer" {
                                 self.p_state = Segment::Trailer;
                                 self.segment = Some(String::from("Trailer"));
+                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                             self.tag = Some(name.local_name);
