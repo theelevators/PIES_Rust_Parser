@@ -1,6 +1,7 @@
 use anyhow::Error;
 // use odbc_api::{ ConnectionOptions, Environment, Cursor, buffers::TextRowSet, Connection };
 use xml::attribute::OwnedAttribute;
+use std::collections::HashMap;
 // const BATCH_SIZE: usize = 5000;
 use std::fs::File;
 use std::io::{ BufReader, Read };
@@ -60,13 +61,21 @@ pub fn parse_xml(f_path: &str) -> Result<(), Error> {
     let file = BufReader::new(file);
     let entries = PiesXmlIterator::new(file).map(|x| x.unwrap());
 
-    let item_no = entries
-        .filter(|x| x.item_num != None)
-        .last()
-        .expect("Should have an item.")
-        .item_num
-        .expect("There should be a number here!");
-    println!("File Contains: {} Items", item_no);
+    let items = entries
+                                                    .filter(|x| x.item_num != None)
+                                                    .filter(|x| x.parent == "Item")
+                                                    .filter(|x| x.tag == "PartNumber");
+
+    for item in items {
+        println!("Part Number: {}", item.value.unwrap());
+    }
+    // let item_no = entries
+    //     .filter(|x| x.item_num != None)
+    //     .last()
+    //     .expect("Should have an item.")
+    //     .item_num
+    //     .expect("There should be a number here!");
+    // println!("File Contains: {} Items", item_no);
 
     Ok(())
 }
@@ -92,7 +101,7 @@ pub enum Segment {
 struct PiesXmlIterator<R: Read> {
     parser: EventReader<R>,
     depth: u32,
-    parent: Option<String>,
+    nodes: HashMap<u32, String>,
     item_num: u32,
     tag: Option<String>,
     segment: Option<String>,
@@ -106,8 +115,8 @@ impl<R: Read> PiesXmlIterator<R> {
         PiesXmlIterator {
             parser: EventReader::new(xml),
             depth: 0,
+            nodes: HashMap::new(),
             item_num: 0,
-            parent: None,
             tag: None,
             segment: None,
             attributes: None,
@@ -124,61 +133,56 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
             match self.parser.next() {
                 Ok(XmlEvent::StartElement { name, attributes, .. }) => {
                     self.depth += 1;
-
+                    self.nodes.insert(self.depth, name.local_name.clone());
                     match self.p_state {
                         Segment::Off => {
                             if name.local_name.as_str() == "Header" {
                                 self.p_state = Segment::Header;
-                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                         }
                         Segment::Header => {
-                            let segment = "Header";
+                            let segment = String::from("Header");
                             if name.local_name.as_str() == "PriceSheets" {
                                 self.p_state = Segment::Price;
-                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                             self.tag = Some(name.local_name);
-                            self.segment = Some(String::from(segment));
+                            self.segment = Some(segment);
                         }
                         Segment::Price => {
-                            let segment = "Price";
+                            let segment = String::from("Price");
                             if name.local_name.as_str() == "MarketingCopy" {
                                 self.p_state = Segment::Mkt;
-                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                             self.tag = Some(name.local_name);
                             self.attributes = Some(attributes);
-                            self.segment = Some(String::from(segment));
+                            self.segment = Some(segment);
                         }
                         Segment::Mkt => {
-                            let segment = "MarketingCopy";
+                            let segment = String::from("MarketingCopy");
                             if name.local_name.as_str() == "Items" {
                                 self.p_state = Segment::Item;
-                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                             self.tag = Some(name.local_name);
                             self.attributes = Some(attributes);
-                            self.segment = Some(String::from(segment));
+                            self.segment = Some(segment);
                         }
                         Segment::Item => {
-                            let segment = "Items";
+                            let segment = String::from("Items");
                             if name.local_name.to_lowercase().as_str() == "item" {
                                 self.item_num += 1;
                             }
                             if name.local_name.as_str() == "Trailer" {
                                 self.p_state = Segment::Trailer;
                                 self.segment = Some(String::from("Trailer"));
-                                self.parent = Some(name.local_name.clone());
                                 continue;
                             }
                             self.tag = Some(name.local_name);
                             self.attributes = Some(attributes);
-                            self.segment = Some(String::from(segment));
+                            self.segment = Some(segment);
                         }
                         Segment::Trailer => {
                             self.segment = Some(String::from("Trailer"));
@@ -189,17 +193,27 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                 }
                 Ok(XmlEvent::EndElement { name }) => {
                     self.depth -= 1;
-                    self.parent = Some(name.local_name.clone());
+
                     match self.p_state {
                         Segment::Off => {}
                         Segment::Header => {
-                            if self.depth < 2 {
+                            if self.depth < 3 {
                                 continue;
                             }
+                            let parent_depth = &self.depth;
+                            let parent = self.nodes
+                                .iter()
+                                .find_map(|(key, val)| (
+                                    if key == parent_depth {
+                                        Some(val)
+                                    } else {
+                                        None
+                                    }
+                                ));
                             let out = PiesEntry {
-                                tag: self.tag.take().unwrap_or(name.local_name.clone()),
+                                tag: self.tag.take().unwrap_or(name.local_name),
                                 item_num: None,
-                                parent: self.parent.take().unwrap(),
+                                parent: String::from(parent.unwrap().clone()),
                                 segment: self.segment.clone().unwrap(),
                                 attributes: None,
                                 value: self.content.take(),
@@ -207,13 +221,23 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                             return Some(Ok(out));
                         }
                         Segment::Item => {
-                            if self.depth < 2 {
+                            if self.depth < 3 {
                                 continue;
                             }
+                            let parent_depth = &self.depth;
+                            let parent = self.nodes
+                                .iter()
+                                .find_map(|(key, val)| (
+                                    if key == parent_depth {
+                                        Some(val)
+                                    } else {
+                                        None
+                                    }
+                                ));
                             let out = PiesEntry {
-                                tag: self.tag.take().unwrap_or(name.local_name.clone()),
+                                tag: self.tag.take().unwrap_or(name.local_name),
                                 item_num: Some(self.item_num),
-                                parent: self.parent.take().unwrap(),
+                                parent: String::from(parent.unwrap().clone()),
                                 segment: self.segment.clone().unwrap(),
                                 attributes: self.attributes.take(),
                                 value: self.content.take(),
@@ -221,14 +245,24 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                             return Some(Ok(out));
                         }
                         _ => {
-                            if self.depth < 2 {
+                            if self.depth < 3 {
                                 continue;
                             }
+                            let parent_depth = &self.depth;
+                            let parent = self.nodes
+                                .iter()
+                                .find_map(|(key, val)| (
+                                    if key == parent_depth {
+                                        Some(val)
+                                    } else {
+                                        None
+                                    }
+                                ));
                             let out = PiesEntry {
-                                tag: self.tag.take().unwrap_or(name.local_name.clone()),
+                                tag: self.tag.take().unwrap_or(name.local_name),
                                 item_num: None,
-                                parent: self.parent.take().unwrap(),
-                                segment: self.segment.clone().unwrap_or(name.local_name),
+                                parent: String::from(parent.unwrap().clone()),
+                                segment: self.segment.clone().unwrap(),
                                 attributes: self.attributes.take(),
                                 value: self.content.take(),
                             };
