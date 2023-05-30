@@ -1,3 +1,6 @@
+#[macro_use]
+pub mod macros;
+
 
 pub struct PIESHeader {
     pies_version: String,
@@ -18,7 +21,7 @@ pub struct PIESHeader {
     tech_contact: String,
     contact_email: String,
     pcdb_ver_date: String,
-    padb_ver_date: String,
+    padb_ver_date: String
 }
 
 pub struct PriceSheets {

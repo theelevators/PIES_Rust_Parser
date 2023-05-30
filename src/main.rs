@@ -1,4 +1,8 @@
+mod models;
+
+use models::macros;
 use anyhow::Error;
+
 // use odbc_api::{ ConnectionOptions, Environment, Cursor, buffers::TextRowSet, Connection };
 use xml::attribute::OwnedAttribute;
 use std::collections::HashMap;
@@ -28,9 +32,10 @@ fn main() {
 
     // println!("{}", results)
 
-    let f_path = "D:\\Projects\\WORK\\PIES\\Gates.xml";
 
-    parse_xml(f_path).expect("No Work!");
+    // let f_path = "D:\\Projects\\WORK\\PIES\\Gates.xml";
+
+    // parse_xml(f_path).expect("No Work!");
 }
 
 // pub fn fetch_rows(conn: Connection, query: &str) -> Result<String, Error> {
@@ -59,16 +64,28 @@ fn main() {
 pub fn parse_xml(f_path: &str) -> Result<(), Error> {
     let file = File::open(f_path)?;
     let file = BufReader::new(file);
-    let entries = PiesXmlIterator::new(file).map(|x| x.unwrap());
+    let entries: Vec<_> = PiesXmlIterator::new(file)       
+                                                    .map(|x| x.unwrap())
+                                                    .collect();
 
-    let items = entries
-                                                    .filter(|x| x.item_num != None)
-                                                    .filter(|x| x.parent == "Item")
-                                                    .filter(|x| x.tag == "PartNumber");
 
-    for item in items {
-        println!("Part Number: {}", item.value.unwrap());
-    }
+    println!("{}", entries.len());
+    // for item in entries {
+
+    //         // if item.item_num == None && item.segment == "Header" {
+
+            
+    //         //     println!("Element: {}", item.tag);
+    //         // }
+
+ 
+
+    //     // if item.segment == "Items" && item.parent == "Item" && item.tag == "PartNumber"{
+    //     //     println!("Part Number:{}", item.value.unwrap());
+    //     //     continue;
+    //     // }
+
+    // }
     // let item_no = entries
     //     .filter(|x| x.item_num != None)
     //     .last()
@@ -97,6 +114,10 @@ pub enum Segment {
     Price,
     Trailer,
 }
+
+
+
+
 
 struct PiesXmlIterator<R: Read> {
     parser: EventReader<R>,
@@ -197,7 +218,7 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                     match self.p_state {
                         Segment::Off => {}
                         Segment::Header => {
-                            if self.depth < 3 {
+                            if self.depth < 2 {
                                 continue;
                             }
                             let parent_depth = &self.depth;
@@ -221,7 +242,7 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                             return Some(Ok(out));
                         }
                         Segment::Item => {
-                            if self.depth < 3 {
+                            if self.depth < 2 {
                                 continue;
                             }
                             let parent_depth = &self.depth;
@@ -245,7 +266,7 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
                             return Some(Ok(out));
                         }
                         _ => {
-                            if self.depth < 3 {
+                            if self.depth < 2 {
                                 continue;
                             }
                             let parent_depth = &self.depth;
@@ -293,3 +314,7 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
         None
     }
 }
+
+
+
+
