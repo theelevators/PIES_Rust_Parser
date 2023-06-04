@@ -1,18 +1,25 @@
 mod models;
+mod xsd;
+use anyhow::{ Error };
 
-use models::macros;
-use anyhow::Error;
-
-// use odbc_api::{ ConnectionOptions, Environment, Cursor, buffers::TextRowSet, Connection };
+use odbc_api::IntoParameter;
+use odbc_api::{ ConnectionOptions, Environment, Cursor, buffers::TextRowSet, Connection };
 use xml::attribute::OwnedAttribute;
 use std::collections::HashMap;
-// const BATCH_SIZE: usize = 5000;
+const BATCH_SIZE: usize = 5000;
 use std::fs::File;
 use std::io::{ BufReader, Read };
 
 use xml::reader::{ EventReader, XmlEvent };
 
+
+
 fn main() {
+
+
+
+    
+   
     // let env = Environment::new().expect("Cannot Connect To Database.");
 
     // let connection_string =
@@ -26,59 +33,39 @@ fn main() {
     //     .connect_with_connection_string(connection_string, ConnectionOptions::default())
     //     .expect("Cannot Connect To Database.");
 
-    // let query = "exec VCdb.dbo.SearchMakeByYear @Year = ?;";
+    // let query = String::from(
+    //     "exec VCdb.dbo.SearchBasicHighwayVehicleInfo @Year = ?, @Make = ?, @Model = ?"
+    // );
+    // let year = String::from("2007");
+    // let make = String::from("Honda");
+    // let model = String::from("Civic");
 
-    // let results = fetch_rows(conn, query).expect("Unable to retrieve data.");
+    // let params = Some(vec![year, make, model]);
+    // let mut vehicles = Statement::new(&conn, query, params);
 
-    // println!("{}", results)
+    // vehicles = vehicles.exec().unwrap();
 
+    // vehicles.print_results();
 
     // let f_path = "D:\\Projects\\WORK\\PIES\\Gates.xml";
 
     // parse_xml(f_path).expect("No Work!");
 }
 
-// pub fn fetch_rows(conn: Connection, query: &str) -> Result<String, Error> {
-//     let year = 2007;
-//     match conn.execute(query, &year)? {
-//         Some(mut cursor) => {
-//             let mut writer = csv::Writer::from_writer(vec![]);
-//             let mut buffers = TextRowSet::for_cursor(BATCH_SIZE, &mut cursor, Some(4096))?;
-//             // Bind the buffer to the cursor. It is now being filled with every call to fetch.
-//             let mut row_set_cursor = cursor.bind_buffer(&mut buffers)?;
-
-//             while let Some(batch) = row_set_cursor.fetch()? {
-//                 for row_index in 0..batch.num_rows() {
-//                     let record = (0..batch.num_cols()).map(|col_index| {
-//                         batch.at(col_index, row_index).unwrap_or(&[])
-//                     });
-//                     writer.write_record(record)?;
-//                 }
-//             }
-//             Ok(String::from_utf8(writer.into_inner()?)?)
-//         }
-//         None => { Ok(String::from("Query came back empty. No output has been created.")) }
-//     }
-// }
-
 pub fn parse_xml(f_path: &str) -> Result<(), Error> {
     let file = File::open(f_path)?;
     let file = BufReader::new(file);
-    let entries: Vec<_> = PiesXmlIterator::new(file)       
-                                                    .map(|x| x.unwrap())
-                                                    .collect();
-
+    let entries: Vec<_> = PiesXmlIterator::new(file)
+        .map(|x| x.unwrap())
+        .collect();
 
     println!("{}", entries.len());
     // for item in entries {
 
     //         // if item.item_num == None && item.segment == "Header" {
 
-            
     //         //     println!("Element: {}", item.tag);
     //         // }
-
- 
 
     //     // if item.segment == "Items" && item.parent == "Item" && item.tag == "PartNumber"{
     //     //     println!("Part Number:{}", item.value.unwrap());
@@ -97,6 +84,24 @@ pub fn parse_xml(f_path: &str) -> Result<(), Error> {
     Ok(())
 }
 
+// enum XSDState {
+//     Off,
+//     Root,
+//     Element,
+//     Attribute,
+//     Restriction,
+//     ElementType,
+//     Sequence,
+    
+// }
+
+
+
+
+
+
+
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PiesEntry {
     tag: String,
@@ -114,10 +119,6 @@ pub enum Segment {
     Price,
     Trailer,
 }
-
-
-
-
 
 struct PiesXmlIterator<R: Read> {
     parser: EventReader<R>,
@@ -316,5 +317,109 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
 }
 
 
+struct Statement<'a> {
+    conn: &'a Connection<'a>,
+    query: String,
+    params: Option<Vec<String>>,
+    results: Option<Vec<Vec<Vec<u8>>>>,
+}
 
+impl Statement<'_> {
+    pub fn new<'a>(
+        conn: &'a Connection,
+        query: String,
+        params: Option<Vec<String>>
+    ) -> Statement<'a> {
+        Statement {
+            conn,
+            query,
+            params,
+            results: None,
+        }
+    }
 
+    fn exec(mut self) -> Result<Self, Error> {
+        match self.params.take() {
+            Some(p) => {
+                let mut rows: Vec<Vec<_>> = vec![];
+                let input = p.to_owned();
+                let params: Vec<_> = input
+                    .iter()
+                    .map(|x| x.as_str().into_parameter())
+                    .collect();
+                match self.conn.execute(&self.query, &params[..])? {
+                    Some(mut cursor) => {
+                        let mut buffers = TextRowSet::for_cursor(
+                            BATCH_SIZE,
+                            &mut cursor,
+                            Some(4096)
+                        )?;
+                        let mut row_set_cursor = cursor.bind_buffer(&mut buffers)?;
+                        while let Some(batch) = row_set_cursor.fetch()? {
+                            for row_index in 0..batch.num_rows() {
+                                let record = (0..batch.num_cols()).map(|col_index| {
+                                    batch.at(col_index, row_index).unwrap_or(&[])
+                                });
+
+                                let row: Vec<_> = record.map(|x| x.to_owned()).collect();
+                                rows.push(row);
+                            }
+                        }
+                    }
+                    None => {
+                        self.results = None;
+                    }
+                }
+                self.results = Some(rows);
+                Ok(self)
+            }
+            None => {
+                let mut rows: Vec<Vec<_>> = vec![];
+                match self.conn.execute(&self.query, ())? {
+                    Some(mut cursor) => {
+                        let mut buffers = TextRowSet::for_cursor(
+                            BATCH_SIZE,
+                            &mut cursor,
+                            Some(4096)
+                        )?;
+                        let mut row_set_cursor = cursor.bind_buffer(&mut buffers)?;
+                        while let Some(batch) = row_set_cursor.fetch()? {
+                            for row_index in 0..batch.num_rows() {
+                                let record = (0..batch.num_cols()).map(|col_index| {
+                                    batch.at(col_index, row_index).unwrap_or(&[])
+                                });
+
+                                let row: Vec<_> = record.map(|x| x.to_owned()).collect();
+
+                                rows.push(row);
+                            }
+                        }
+                    }
+                    None => {
+                        self.results = None;
+                    }
+                }
+                self.results = Some(rows);
+                Ok(self)
+            }
+        }
+    }
+    fn print_results(&mut self) {
+        match self.results.take() {
+            Some(rows) => {
+                for row in rows {
+                    let mut sentence = String::new();
+                    for col in row {
+                        if sentence.as_str() == "" {
+                            sentence = sentence + String::from_utf8(col).unwrap().as_str();
+                        } else {
+                            sentence = sentence + "," + String::from_utf8(col).unwrap().as_str();
+                        }
+                    }
+                    println!("{}", sentence);
+                }
+            }
+            None => println!("Statement has no results!"),
+        }
+    }
+}
