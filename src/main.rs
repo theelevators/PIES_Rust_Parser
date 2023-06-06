@@ -1,7 +1,7 @@
 mod models;
 mod xsd;
+use xsd::*;
 use anyhow::{ Error };
-
 use odbc_api::IntoParameter;
 use odbc_api::{ ConnectionOptions, Environment, Cursor, buffers::TextRowSet, Connection };
 use xml::attribute::OwnedAttribute;
@@ -12,14 +12,7 @@ use std::io::{ BufReader, Read };
 
 use xml::reader::{ EventReader, XmlEvent };
 
-
-
 fn main() {
-
-
-
-    
-   
     // let env = Environment::new().expect("Cannot Connect To Database.");
 
     // let connection_string =
@@ -47,14 +40,15 @@ fn main() {
 
     // vehicles.print_results();
 
-    // let f_path = "D:\\Projects\\WORK\\PIES\\Gates.xml";
+    let f_path = "D:\\Projects\\WORK\\PIES\\PIES_6_7_(rev3)_XSD_20160915.xsd";
 
-    // parse_xml(f_path).expect("No Work!");
+    xsd_validate(f_path).expect("No Work!");
 }
 
 pub fn parse_xml(f_path: &str) -> Result<(), Error> {
     let file = File::open(f_path)?;
-    let file = BufReader::new(file);
+
+
     let entries: Vec<_> = PiesXmlIterator::new(file)
         .map(|x| x.unwrap())
         .collect();
@@ -92,10 +86,27 @@ pub fn parse_xml(f_path: &str) -> Result<(), Error> {
 //     Restriction,
 //     ElementType,
 //     Sequence,
-    
+
 // }
 
 
+
+
+pub fn xsd_validate(f_path: &str)->Result<(), Error>{
+    let file = File::open(f_path)?;
+
+    let entries: Vec<_> = XmlSchema::new(file)
+        .map(|x| x.unwrap())
+        .collect();
+
+        for entry in entries {
+            
+            if entry.node < 3{
+                println!("tag: {},  node: {}", entry.tag, entry.node);
+            }
+        }
+    Ok(())
+}
 
 
 
@@ -315,7 +326,6 @@ impl<R: Read> Iterator for PiesXmlIterator<R> {
         None
     }
 }
-
 
 struct Statement<'a> {
     conn: &'a Connection<'a>,
